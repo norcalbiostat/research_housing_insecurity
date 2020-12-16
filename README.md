@@ -1,5 +1,7 @@
-# research_housing_insecurity
+# Research in Housing Insecurity among College Students
 Code files and public data to accompany research publications
 
+## Contact: 
 
-* [ ] Delete QID from .dta and then upload 
+* Jennifer Wilking jwilking@csuchico.edu for manuscript questions
+* Robin Donatello rdonatello@csuchico.edu for repository questions
