@@ -1,0 +1,123 @@
+---
+title: "Effects of missing data on housing models"
+author: "Robin Donatello"
+date: "9/4/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(mice)
+library(tidyverse)
+library(forestplot)
+
+#raw <- haven::read_dta("Complete Dataset for Imputation 8.25.20.dta")
+raw <- haven::read_dta("datatoimputev2.dta")
+jw <- raw %>% select(HIdummy3, PellNum, studentparent, nonwhite ,LGBTQ ,
+                     rentdummy, CFimpact, servicesindex, buttecountyres,
+                     directoutreach, homelessall)
+```
+
+# How much missing data is there? 
+
+```{r}
+prop.miss <- apply(jw, 2, function(x) round(sum(is.na(x))/NROW(x),4))
+pmpv <- data.frame(variable = names(jw), pct.miss =prop.miss)
+
+ggplot(pmpv, aes(x=variable, y=pct.miss)) +
+  geom_bar(stat="identity") + ylab("Percent") + scale_y_continuous(labels=scales::percent, limits=c(0,.2)) + 
+  geom_text(data=pmpv, aes(label=paste0(round(pct.miss*100,1),"%"), y=pct.miss+.025), size=4) + coord_flip()
+```
+
+Very little missing data. Unlikely to have any substantial impact on model results. 
+
+# outcome: homelessall
+
+## Complete case estimates
+
+```{r}
+cc.hm <- glm(homelessall ~ PellNum + studentparent + nonwhite + LGBTQ + rentdummy + CFimpact + 
+                           servicesindex + buttecountyres + directoutreach, 
+             data=jw, family='binomial') %>% 
+          summary() %>% coefficients()
+cc.hm <- cc.hm[-1,] # remove intercept
+```
+
+## Multple Imputation
+
+```{r}
+mi.hm <- jw %>% mice(m=10, maxit=100, seed=500, printFlag=FALSE) %>%
+        with(glm(homelessall~PellNum + studentparent + nonwhite + LGBTQ + 
+                   rentdummy + CFimpact + servicesindex + buttecountyres +
+                   directoutreach, family='binomial')) %>% pool() %>% summary()
+mi.hm <- mi.hm[-1,] # remove intercept
+```
+
+```{r, fig.width=10}
+cc.mean <- cc.hm[,1]
+mi.mean <- mi.hm[,2]
+cc.ll   <- cc.mean - 1.96*cc.hm[,2]
+cc.ul   <- cc.mean + 1.96*cc.hm[,2]
+mi.ll   <- mi.mean - 1.96*mi.hm[,3]
+mi.ul   <- mi.mean + 1.96*mi.hm[,3]
+names   <- rownames(cc.hm)
+
+
+forestplot(names, 
+           legend = c("CC", "MICE"),
+           fn.ci_norm = c(fpDrawNormalCI, fpDrawCircleCI), 
+           mean = cbind(cc.mean, mi.mean), 
+           lower = cbind(cc.ll, mi.ll),
+           upper = cbind(cc.ul, mi.ul), 
+           col=fpColors(box=c("blue", "darkred")), 
+           xlab="Regression coefficients",
+           boxsize = .1
+           )
+```
+
+
+# outcome: HIdummy3
+
+## Complete case estimates
+
+```{r}
+cc.hi <- glm(HIdummy3~PellNum + studentparent + nonwhite + LGBTQ + rentdummy + CFimpact +
+               servicesindex + buttecountyres + directoutreach, 
+             data=jw, family='binomial') %>% 
+          summary() %>% coefficients()
+cc.hi <- cc.hi[-1,] # remove intercept
+```
+
+## Multple Imputation
+
+```{r}
+mi.hi <- jw %>% mice(m=10, maxit=100, seed=500, printFlag=FALSE) %>%
+        with(glm(HIdummy3~PellNum + studentparent + nonwhite + LGBTQ + 
+                   rentdummy + CFimpact + servicesindex + buttecountyres +
+                   directoutreach, family="binomial")) %>% pool() %>% summary()
+mi.hi <- mi.hi[-1,] # remove intercept
+```
+
+```{r, fig.width=10}
+cc.mean <- cc.hi[,1]
+mi.mean <- mi.hi[,2]
+cc.ll   <- cc.mean - 1.96*cc.hi[,2]
+cc.ul   <- cc.mean + 1.96*cc.hi[,2]
+mi.ll   <- mi.mean - 1.96*mi.hi[,3]
+mi.ul   <- mi.mean + 1.96*mi.hi[,3]
+names   <- rownames(cc.hi)
+
+
+forestplot(names, 
+           legend = c("CC", "MICE"),
+           fn.ci_norm = c(fpDrawNormalCI, fpDrawCircleCI), 
+           mean = cbind(cc.mean, mi.mean), 
+           lower = cbind(cc.ll, mi.ll),
+           upper = cbind(cc.ul, mi.ul), 
+           col=fpColors(box=c("blue", "darkred")), 
+           xlab="Regression coefficients",
+           boxsize = .1
+           )
+```
+
+

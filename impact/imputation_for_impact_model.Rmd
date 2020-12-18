@@ -1,0 +1,166 @@
+---
+title: "Effects of missing data on Impact models"
+author: "Robin Donatello"
+date: "12/10/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(mice)
+library(tidyverse)
+library(forestplot)
+
+raw <- haven::read_dta("EducResearcherDatatoimpute.dta")
+
+jw <- raw %>% 
+  select(GPA_FALL19, HIdummy3, PellNum, female, nonwhite, LGBTQ,
+         CFimpact, servicesindex, directoutreach, homelessall) %>%
+  mutate(xgpa = log(4-GPA_FALL19+.01))
+```
+
+# First, check if we need to transform GPA.
+Log pulls right skewed data to the right, so we take 4-GPA to flip the scale. 
+But we can't take a log of 0, so we have to add a small constant, here it's .01. 
+Note that this "log" is actually $ln$, log base $e$. 
+```{r}
+par(mfrow=c(1,2))
+hist(jw$GPA_FALL19)
+hist(log(4-jw$GPA_FALL19+.01))
+summary(jw$GPA_FALL19)
+summary(jw$xgpa)
+```
+
+Flipping then logging does bring the data to a more symmetric & normal distribution, with the exception of that spike around -5, which represents the original 0's in the data. Let's see how much it improves the model fit. 
+
+```{r}
+mod <- lm(GPA_FALL19 ~ HIdummy3 + PellNum + female + nonwhite + LGBTQ + 
+            CFimpact + servicesindex + directoutreach, data=jw)
+x.mod <- lm(xgpa ~ HIdummy3 + PellNum + female + nonwhite + LGBTQ + 
+              CFimpact + servicesindex + directoutreach, data=jw) 
+```
+
+* compare $R^2$ values: they're the same. 
+```{r}
+summary(mod)$r.squared
+summary(x.mod)$r.squared
+```
+
+* Compare AIC (lower is better): Original model is better by a lot.  
+```{r}
+AIC(mod)
+AIC(x.mod)
+```
+* Compare BIC (lower is better): Original model is better by a lot
+```{r}
+BIC(mod)
+BIC(x.mod)
+```
+
+> Conclusion: Stick with untransformed GPA. 
+
+# Imputation
+
+## How much missing data is there? 
+
+```{r}
+jw$xgpa <- NULL # drop xformed GPA var
+
+prop.miss <- apply(jw, 2, function(x) round(sum(is.na(x))/NROW(x),4))
+pmpv <- data.frame(variable = names(jw), pct.miss =prop.miss)
+
+ggplot(pmpv, aes(x=variable, y=pct.miss)) +
+  geom_bar(stat="identity") + ylab("Percent") + scale_y_continuous(labels=scales::percent, limits=c(0,.2)) + 
+  geom_text(data=pmpv, aes(label=paste0(round(pct.miss*100,1),"%"), y=pct.miss+.025), size=4) + coord_flip()
+```
+
+Mostly less than 10% missing data,  the biggest impact of missing data may be in the model with homelessness. 
+
+## covariate: homelessall
+
+### Complete case estimates
+
+```{r}
+cc.hm <- lm(GPA_FALL19 ~ homelessall + PellNum + female + nonwhite + LGBTQ + 
+            CFimpact + servicesindex + directoutreach, data=jw) %>% 
+            summary() %>% coefficients()
+cc.hm <- cc.hm[-1,] # remove intercept
+```
+
+### Multple Imputation
+
+```{r, cache=TRUE}
+mi.hm <- jw %>% 
+  mice(m=10, maxit=100, seed=500, printFlag=FALSE) %>% 
+  with(lm(GPA_FALL19 ~ homelessall + PellNum + female + nonwhite + LGBTQ + 
+            CFimpact + servicesindex + directoutreach, data=jw)) %>% pool() %>% summary()
+mi.hm <- mi.hm[-1,] # remove intercept
+```
+
+```{r, fig.width=10}
+cc.mean <- cc.hm[,1]
+mi.mean <- mi.hm[,2]
+cc.ll   <- cc.mean - 1.96*cc.hm[,2]
+cc.ul   <- cc.mean + 1.96*cc.hm[,2]
+mi.ll   <- mi.mean - 1.96*mi.hm[,3]
+mi.ul   <- mi.mean + 1.96*mi.hm[,3]
+names   <- rownames(cc.hm)
+
+
+forestplot(names, 
+           legend = c("CC", "MICE"),
+           fn.ci_norm = c(fpDrawNormalCI, fpDrawCircleCI), 
+           mean = cbind(cc.mean, mi.mean), 
+           lower = cbind(cc.ll, mi.ll),
+           upper = cbind(cc.ul, mi.ul), 
+           col=fpColors(box=c("blue", "darkred")), 
+           xlab="Regression coefficients",
+           boxsize = .1
+           )
+```
+
+
+## covariate: HIdummy3
+
+### Complete case estimates
+
+```{r}
+cc.hi <- lm(GPA_FALL19 ~ HIdummy3 + PellNum + female + nonwhite + LGBTQ + 
+            CFimpact + servicesindex + directoutreach, data=jw) %>% 
+          summary() %>% coefficients()
+cc.hi <- cc.hi[-1,] # remove intercept
+```
+
+## Multple Imputation
+
+```{r, cache=TRUE}
+mi.hi <- jw %>% 
+  mice(m=10, maxit=100, seed=500, printFlag=FALSE) %>% 
+  with(lm(GPA_FALL19 ~ HIdummy3 + PellNum + female + nonwhite + LGBTQ + 
+            CFimpact + servicesindex + directoutreach, data=jw)) %>% pool() %>% summary()
+mi.hi <- mi.hi[-1,] # remove intercept
+```
+
+```{r, fig.width=10}
+cc.mean <- cc.hi[,1]
+mi.mean <- mi.hi[,2]
+cc.ll   <- cc.mean - 1.96*cc.hi[,2]
+cc.ul   <- cc.mean + 1.96*cc.hi[,2]
+mi.ll   <- mi.mean - 1.96*mi.hi[,3]
+mi.ul   <- mi.mean + 1.96*mi.hi[,3]
+names   <- rownames(cc.hi)
+
+
+forestplot(names, 
+           legend = c("CC", "MICE"),
+           fn.ci_norm = c(fpDrawNormalCI, fpDrawCircleCI), 
+           mean = cbind(cc.mean, mi.mean), 
+           lower = cbind(cc.ll, mi.ll),
+           upper = cbind(cc.ul, mi.ul), 
+           col=fpColors(box=c("blue", "darkred")), 
+           xlab="Regression coefficients",
+           boxsize = .1
+           )
+```
+
+
